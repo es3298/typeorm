@@ -467,6 +467,21 @@ describe("entity manager > invalidWhereValuesBehavior with ignore", () => {
     beforeEach(() => reloadTestingDatabases(dataSources))
     after(() => closeTestingConnections(dataSources))
 
+    async function expectEmptyCriteriaError(
+        operation: Promise<unknown>,
+        method: string,
+    ) {
+        try {
+            await operation
+            expect.fail("Expected error")
+        } catch (error) {
+            expect(error).to.be.instanceOf(TypeORMError)
+            expect(error.message).to.include(
+                `Empty criteria(s) are not allowed for the ${method} method.`,
+            )
+        }
+    }
+
     it("should strip null criteria in EntityManager.delete() with ignore", async () => {
         for (const connection of dataSources) {
             const post = new Post()
@@ -551,6 +566,73 @@ describe("entity manager > invalidWhereValuesBehavior with ignore", () => {
 
             const remaining = await connection.manager.find(Post)
             expect(remaining.length).to.equal(0)
+        }
+    })
+
+    it("should reject destructive criteria that become empty after ignore", async () => {
+        for (const connection of dataSources) {
+            const post = new Post()
+            post.title = "Test Post"
+            post.text = "text"
+            await connection.manager.save(post)
+
+            await expectEmptyCriteriaError(
+                connection.manager.update(
+                    Post,
+                    invalidCriteria<Post>({ text: null }),
+                    { title: "Updated" },
+                ),
+                "update",
+            )
+            await expectEmptyCriteriaError(
+                connection.manager.delete(
+                    Post,
+                    invalidCriteria<Post>({ text: undefined }),
+                ),
+                "delete",
+            )
+            await expectEmptyCriteriaError(
+                connection.manager.softDelete(
+                    Post,
+                    invalidCriteria<Post>({ text: null }),
+                ),
+                "softDelete",
+            )
+            await expectEmptyCriteriaError(
+                connection.manager.restore(
+                    Post,
+                    invalidCriteria<Post>({ text: undefined }),
+                ),
+                "restore",
+            )
+
+            const saved = await connection.manager.findOneByOrFail(Post, {
+                id: post.id,
+            })
+            expect(saved.title).to.equal("Test Post")
+        }
+    })
+
+    it("should drop empty OR branches after ignore while keeping valid criteria", async () => {
+        for (const connection of dataSources) {
+            const kept = new Post()
+            kept.title = "Keep Post"
+            kept.text = "text"
+            await connection.manager.save(kept)
+
+            const removed = new Post()
+            removed.title = "Remove Post"
+            removed.text = "text"
+            await connection.manager.save(removed)
+
+            await connection.manager.delete(Post, [
+                invalidCriteria<Post>({ text: undefined }),
+                invalidCriteria<Post>({ title: "Remove Post" }),
+            ])
+
+            const remaining = await connection.manager.find(Post)
+            expect(remaining).to.have.length(1)
+            expect(remaining[0].title).to.equal("Keep Post")
         }
     })
 })

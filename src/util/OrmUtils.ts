@@ -385,11 +385,19 @@ export class OrmUtils {
      * @param criteria
      */
     public static isCriteriaNullOrEmpty(criteria: unknown): boolean {
+        if (Array.isArray(criteria)) {
+            return (
+                criteria.length === 0 ||
+                criteria.every((criterion) =>
+                    OrmUtils.isCriteriaNullOrEmpty(criterion),
+                )
+            )
+        }
+
         return (
             criteria === undefined ||
             criteria === null ||
             criteria === "" ||
-            (Array.isArray(criteria) && criteria.length === 0) ||
             (OrmUtils.isPlainObject(criteria) &&
                 Object.keys(criteria).length === 0)
         )
@@ -670,14 +678,18 @@ export class OrmUtils {
     ): ObjectLiteral | ObjectLiteral[] {
         // multiple criteria are possible at the top level
         if (!path && Array.isArray(criteria)) {
-            return criteria.map(
-                (criterion, index): ObjectLiteral =>
-                    OrmUtils.normalizeWhereCriteria(
-                        criterion,
-                        options,
-                        String(index),
-                    ),
-            )
+            return criteria
+                .map(
+                    (criterion, index): ObjectLiteral =>
+                        OrmUtils.normalizeWhereCriteria(
+                            criterion,
+                            options,
+                            String(index),
+                        ),
+                )
+                .filter(
+                    (criterion) => !OrmUtils.isCriteriaNullOrEmpty(criterion),
+                )
         }
 
         const result: ObjectLiteral = Object.create(null)
